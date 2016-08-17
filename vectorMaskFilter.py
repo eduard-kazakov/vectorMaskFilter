@@ -82,6 +82,9 @@ def mask_filter (input_shapefile_path, option, mask_type = 'osm'):
         print 'invalid option'
         return -1
 
+    if not os.path.exists(temp_path):
+        os.makedirs(temp_path)
+
     #clear_temp_dir()
     print '- - - - - - - - - - - - -'
     print 'Filtering options:'
