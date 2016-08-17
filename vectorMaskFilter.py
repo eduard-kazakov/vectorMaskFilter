@@ -1,7 +1,6 @@
+import getopt
 import subprocess
-
-import fiona
-import shapely
+import sys
 import shapefile
 import os
 from osgeo import ogr
@@ -84,27 +83,42 @@ def mask_filter (input_shapefile_path, option, mask_type = 'osm'):
         return -1
 
     #clear_temp_dir()
-
+    print '- - - - - - - - - - - - -'
+    print 'Filtering options:'
     if mask_type == 'osm':
         mask_path = script_path + '/land_masks/osm_simplified.shp'
+        print 'OpenStreetMap mask is selected'
     if mask_type == 'ned':
         mask_path = script_path + '/land_masks/ned.shp'
+        print 'Natural Earth Data mask is selected'
 
+    if option == 'filter_start_points':
+        print 'Features with start points on land will be deleted'
+    elif option == 'filter_end_points':
+        print 'Features with end points on land will be deleted'
+    elif option == 'filter_intersection':
+        print 'Features someway intersecting land will be deleted'
+    print '- - - - - - - - - - - - -'
     # PREPARE CUTTED MASK LAYER
     drv = ogr.GetDriverByName('ESRI Shapefile')
 
-    user_layer_source = drv.Open(input_shapefile_path)
+    user_layer_source = drv.Open(input_shapefile_path,1)
     user_layer = user_layer_source.GetLayer(0)
     user_layer_bounds = user_layer.GetExtent()
 
     clipped_mask_path = temp_path + 'clipped_mask.shp'
+
+    print 'Running land mask clipping... Some topology errors may appear, ignore it.'
+    print '- - - - - - - - - - - - -'
     clip_vector_layer_by_bbox(mask_path,clipped_mask_path,user_layer_bounds[0],user_layer_bounds[2],user_layer_bounds[1],user_layer_bounds[3])
 
     clipped_mask_source = drv.Open(clipped_mask_path)
     clipped_mask_layer = clipped_mask_source.GetLayer(0)
 
-    fid_list = []
-
+    fid_delete_list = []
+    fid_stand_list = []
+    print '- - - - - - - - - - - - -'
+    print 'Detecting features...'
     if option == 'filter_intersection':
         for mask_feature in clipped_mask_layer:
             mask_feature_geom = mask_feature.GetGeometryRef()
@@ -112,7 +126,12 @@ def mask_filter (input_shapefile_path, option, mask_type = 'osm'):
             for user_feature in user_layer:
                 user_feature_geom = user_feature.GetGeometryRef()
                 if mask_feature_geom.Intersects(user_feature_geom):
-                    fid_list.append(user_feature.GetFID())
+                    fid_delete_list.append(user_feature.GetFID())
+                else:
+                    fid_stand_list.append(user_feature.GetFID())
+        print 'Deleting features...'
+        for fid in fid_delete_list:
+            user_layer.DeleteFeature(fid)
 
 
     if (option == 'filter_start_points') or (option == 'filter_end_points'):
@@ -130,9 +149,33 @@ def mask_filter (input_shapefile_path, option, mask_type = 'osm'):
             for point_feature in points_layer:
                 point_feature_geom = point_feature.GetGeometryRef()
                 if mask_feature_geom.Intersects(point_feature_geom):
-                    fid_list.append(point_feature.GetFID())
+                    fid_delete_list.append(point_feature.GetFID())
+                else:
+                    fid_stand_list.append(point_feature.GetFID())
+        print 'Deleting features...'
+        for fid in fid_delete_list:
+            user_layer.DeleteFeature(fid)
 
-    # now we have ids of features, which must be deleted
+        points_source.Destroy()
 
 
-mask_filter('/home/silent/filter_test/drift1.shp','filter_end_points')
+    clipped_mask_source.Destroy()
+
+
+    user_layer_source.ExecuteSQL("REPACK " + os.path.splitext(os.path.basename(input_shapefile_path))[0])
+    user_layer_source.Destroy()
+
+
+#mask_filter('/home/silent/filter_test/deltest/drift1.shp','filter_start_points')
+
+if __name__ == "__main__":
+    opts, args = getopt.getopt(sys.argv[1:], "h", ["help"])
+    try:
+        input_shapefile_path = args[0]
+        option = args[1]
+        mask_type = args[2]
+    except:
+        print ('invalid arguments')
+        sys.exit()
+
+    mask_filter(input_shapefile_path,option,mask_type)
